@@ -1,5 +1,5 @@
 from torch.utils.data import Dataset
-import datapreparation as datp
+from helpers import datapreparation as datp
 import torch
 import numpy as np
 
@@ -68,7 +68,7 @@ class pianoroll_dataset_chunks(Dataset):
         len_full = len(self.tags)
         indexes=zip(np.repeat(np.arange(len_full),chunks_per_song),\
                          np.array([np.arange(chunks_per_song)]*len_full).flatten())
-        self.indexes = [indexes[x] for x in np.random.choice(xrange(len(indexes)),batchsize)]
+        self.indexes = [indexes[x] for x in np.random.choice(range(len(indexes)),batchsize)]
         
     def __len__(self):
         return len(self.indexes)

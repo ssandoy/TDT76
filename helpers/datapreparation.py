@@ -78,7 +78,7 @@ def midfile_to_piano_roll(filepath,fs=5):
     pm = pretty_midi.PrettyMIDI(filepath)
     pr=pm.get_piano_roll(fs)
     df = pd.DataFrame(pr)
-    df.to_csv(filepath[:-3]+"csv")
+    df.to_csv(filepath[:-3]+"csv",  index=False)
     return filepath[:-3]+"csv"
 
 def piano_roll_to_mid_file(pianoroll_matrix,fname,fs=5,instrument=1):
@@ -97,7 +97,7 @@ def midfile_to_piano_roll_ins(filepath,instrument_n=0,fs=5):
     pm = pretty_midi.PrettyMIDI(filepath)
     pr=pm.instruments[instrument_n].get_piano_roll(fs)
     df = pd.DataFrame(pr)
-    df.to_csv(filepath[:-3]+str(instrument_n)+".csv")
+    df.to_csv(filepath[:-3]+str(instrument_n)+".csv", index=False)
     return filepath[:-3]+str(instrument_n)+".csv"
 
 def load_all_dataset(dirpath,binarize=True):
@@ -136,7 +136,7 @@ def get_numkeys(dataset):
     """
     return np.unique([x.shape[0] for x in dataset])
 
-def visualize_piano_roll(pianoroll_matrix,fs=5):
+def visualize_piano_roll(pianoroll_matrix, filename=None, fs=5):
     """ input: piano roll matrix with shape (number of notes, time steps)
         effect: generates a nice graph with the piano roll visualization
     """
@@ -145,6 +145,8 @@ def visualize_piano_roll(pianoroll_matrix,fs=5):
     track = pproll.Track(pianoroll=pianoroll_matrix, program=0, is_drum=False, name='piano roll')   
     # Plot the piano-roll
     fig, ax = track.plot(beat_resolution=fs)
+    if filename:
+        plt.savefig("png/{}".format(filename))
     plt.show()
 
 def test_piano_roll(pianoroll_matrix,n_seconds,fs=5):
@@ -161,13 +163,14 @@ def embed_play_v1(piano_roll_matrix,fs=5):
 
 def generate_round(model,tag,n,k=1,init=None):
     if(init is None):
-        init = torch.zeros(size=(k,1,model.input_size)).cuda()
+        init = torch.zeros(size=(k,1,model.input_size)).cpu()
     else:
         k = init.shape[0]
     res = init
     hidden = None
-    for i in xrange(n//k):
-        init,hidden = model.forward(init,tag,hidden)
+    for i in range(n//k):
+        init,hidden = model.forward(init.numpy(),tag,hidden)
+        init = torch.from_numpy(init)
         #init = torch.round(torch.exp(init))
         init = torch.round(init/torch.max(init))
         res = torch.cat ( ( res, init ) )
@@ -176,7 +179,7 @@ def generate_round(model,tag,n,k=1,init=None):
 def generate_smooth(model,tag,n,init):
     res = init
     hidden = None
-    for i in xrange(n):
+    for i in range(n):
         init_new,hidden = model.forward(init,tag,hidden)
         #init = torch.round(torch.exp(init))
         init_new = init_new[-1:]
@@ -187,17 +190,17 @@ def generate_smooth(model,tag,n,init):
 
 def gen_music(model,length=1000,init=None,composer=0,fs=5):
     if(init is None):
-        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cuda(),length,1)
+        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cpu(),length,1)
     else:
-        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cuda(),length,1,init)
+        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cpu(),length,1,init)
     res = ( song.squeeze(1).detach().cpu().numpy()).astype(int).T
     visualize_piano_roll(res,fs)
     return embed_play_v1(res,fs)
 
 def gen_music_initkeys(model,length=1000,initkeys=40,composer=0,fs=5):
-    init = torch.zeros(size=(1,1,model.input_size)).cuda()
+    init = torch.zeros(size=(1,1,model.input_size)).cpu()
     init[0,0,initkeys]=1
-    song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cuda(),length,1,init)
+    song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cpu(),length,1,init)
     res = ( song.squeeze(1).detach().cpu().numpy()).astype(int).T
     visualize_piano_roll(res,fs)
     return embed_play_v1(res,fs)
@@ -205,9 +208,9 @@ def gen_music_initkeys(model,length=1000,initkeys=40,composer=0,fs=5):
     
 def gen_music_pianoroll(model,length=1000,init=None,composer=0,fs=5):
     if(init is None):
-        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cuda(),length,1)
+        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cpu(),length,1)
     else:
-        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cuda(),length,1,init)
+        song=generate_round(model, torch.LongTensor([composer]).unsqueeze(1).cpu(),length,1,init)
     res = ( song.squeeze(1).detach().cpu().numpy()).astype(int).T
     return res
 
@@ -228,7 +231,23 @@ def gen_music_seconds_smooth(model,init,composer=0,fs=5,gen_seconds=10,init_seco
     res = ( song.squeeze(1).detach().cpu().numpy()).astype(float).T
     visualize_piano_roll(res,fs)
     return embed_play_v1(res,fs)
-    
+
+# TODO: TAG ALSO.
+def get_songs(songs, num_songs=None, song_index=None):
+    if song_index is not None:
+        inputs = np.array([song[0].numpy() for song in songs])[song_index:song_index+1]
+        tags = np.array([song[1].numpy() for song in songs])[song_index:song_index+1]
+        outputs = np.array([song[2].numpy() for song in songs])[song_index:song_index+1]
+    elif num_songs is not None:
+        inputs = np.array([song[0].numpy() for song in songs])[:num_songs]
+        tags = np.array([song[1].numpy() for song in songs])[:num_songs]
+        outputs = np.array([song[2].numpy() for song in songs])[:num_songs]
+    else:
+        inputs = np.array([song[0].numpy() for song in songs])
+        tags = np.array([song[1].numpy() for song in songs])
+        outputs = np.array([song[2].numpy() for song in songs])
+
+    return (inputs, outputs, tags)
     
 
     
